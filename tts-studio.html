@@ -26,6 +26,7 @@
 <div class="card">
   <h3>① 貼上金鑰</h3>
   <label>Google Cloud 金鑰（AIza 開頭）<input id="gkey" type="password" autocomplete="off"></label>
+  <label>Gemini API 金鑰（Google AI Studio，推薦）<input id="skey" type="password" autocomplete="off"></label>
   <label>Google 聲音模型
     <select id="gmode" style="font:inherit;padding:6px;border-radius:10px;margin:4px 0 8px">
       <option value="gemini">Gemini-TTS（推薦，可以指定台灣口音）</option>
@@ -55,18 +56,36 @@ import { allLines } from './js/lines.js';
 
 const $ = id => document.getElementById(id);
 const LS = k => localStorage.getItem('tts-' + k) || '';
-$('gkey').value = LS('gkey'); $('gmode').value = LS('gmode') || 'gemini'; $('accent').value = LS('accent') || TW_ACCENT; $('akey').value = LS('akey'); $('areg').value = LS('areg') || 'eastasia';
+$('gkey').value = LS('gkey'); $('skey').value = LS('skey'); $('gmode').value = LS('gmode') || 'gemini'; $('accent').value = LS('accent') || TW_ACCENT; $('akey').value = LS('akey'); $('areg').value = LS('areg') || 'eastasia';
 $('savekeys').onclick = () => {
-  ['gkey', 'akey', 'areg', 'gmode', 'accent'].forEach(k => localStorage.setItem('tts-' + k, $(k).value.trim()));
+  ['gkey', 'skey', 'akey', 'areg', 'gmode', 'accent'].forEach(k => localStorage.setItem('tts-' + k, $(k).value.trim()));
   $('kmsg').textContent = '已記住（只存在這台電腦）'; renderGuides();
 };
-const keys = () => ({ g: $('gkey').value.trim(), a: $('akey').value.trim(), r: $('areg').value.trim() || 'eastasia' });
-const provider = g => (keys().a && g.azure) ? 'azure' : keys().g ? ($('gmode').value === 'gemini' && g.gemini ? 'gemini' : 'google') : null;
+const keys = () => ({ s: $('skey').value.trim(), g: $('gkey').value.trim(), a: $('akey').value.trim(), r: $('areg').value.trim() || 'eastasia' });
+const provider = g => (keys().s && g.gemini) ? 'studio' : (keys().a && g.azure) ? 'azure' : keys().g ? ($('gmode').value === 'gemini' && g.gemini ? 'gemini' : 'google') : null;
 $('gmode').onchange = () => renderGuides();
 
+function pcmToWav(pcm, rate = 24000) {
+  const b = new ArrayBuffer(44 + pcm.length), v = new DataView(b), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + pcm.length, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, pcm.length, true);
+  new Uint8Array(b, 44).set(pcm); return new Uint8Array(b);
+}
 function b64ToBytes(b64) { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
 async function synth(text, g) {
   const p = provider(g), k = keys();
+  if (p === 'studio') {
+    const body = JSON.stringify({ contents: [{ parts: [{ text: `${$('accent').value.trim()}${g.gemini.style}\n請朗讀下面這段話：\n${text}` }] }],
+      generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: g.gemini.speaker } } } } });
+    for (let tries = 0; ; tries++) {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=' + encodeURIComponent(k.s),
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const j = await r.json();
+      if (r.status === 429 && tries < 6) { $('log').textContent += '…等待額度（20 秒）\n'; await new Promise(z => setTimeout(z, 20000)); continue; }
+      if (!r.ok) throw new Error(j.error?.message || r.status);
+      return pcmToWav(b64ToBytes(j.candidates[0].content.parts[0].inlineData.data));
+    }
+  }
   if (p === 'gemini') {
     const r = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(k.g), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -104,14 +123,14 @@ async function synth(text, g) {
 function renderGuides() {
   $('guides').innerHTML = GUIDES.map((g, i) => {
     const p = provider(g);
-    const v = p === 'azure' ? g.azure.name : p === 'gemini' ? 'Gemini・' + g.gemini.speaker : p === 'google' ? g.google.name : '（請先填金鑰）';
+    const v = p === 'studio' ? 'AI Studio・' + g.gemini.speaker : p === 'azure' ? g.azure.name : p === 'gemini' ? 'Gemini・' + g.gemini.speaker : p === 'google' ? g.google.name : '（請先填金鑰）';
     return `<tr><td><img src="assets/img/${g.img}.webp" alt=""></td><td><b>${g.name}</b><br><small>${g.gender}</small></td>
       <td><span class="tag ${p === 'azure' ? 'az' : ''}">${p || '—'}</span><br><small>${v}</small></td>
       <td><button class="btn small" data-i="${i}">試聽</button></td></tr>`;
   }).join('');
   document.querySelectorAll('[data-i]').forEach(b => b.onclick = async () => {
     b.disabled = true; b.textContent = '產生中…';
-    try { const bytes = await synth(GUIDES[b.dataset.i].sample, GUIDES[b.dataset.i]); new Audio(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))).play(); }
+    try { const bytes = await synth(GUIDES[b.dataset.i].sample, GUIDES[b.dataset.i]); new Audio(URL.createObjectURL(new Blob([bytes], { type: provider(GUIDES[b.dataset.i]) === 'studio' ? 'audio/wav' : 'audio/mpeg' }))).play(); }
     catch (e) { alert('失敗：' + e.message); }
     b.disabled = false; b.textContent = '試聽';
   });
@@ -145,7 +164,7 @@ function zip(files) {
 
 $('go').onclick = async () => {
   const lines = allLines(), ready = GUIDES.filter(provider);
-  if (!ready.length) return alert('請先填 Google 金鑰');
+  if (!ready.length) return alert('請先填金鑰');
   const total = lines.length * ready.length, files = [], index = {};
   $('prog').hidden = false; $('prog').max = total; $('prog').value = 0; $('log').textContent = '';
   $('go').disabled = true;
@@ -153,7 +172,7 @@ $('go').onclick = async () => {
     index[g.id] = [];
     for (const t of lines) {
       const h = hashText(t);
-      try { files.push([`audio/${g.id}/${h}.mp3`, await synth(t, g)]); index[g.id].push(h); }
+      try { files.push([`audio/${g.id}/${h}.${provider(g) === 'studio' ? 'wav' : 'mp3'}`, await synth(t, g)]); index[g.id].push(h); }
       catch (e) { $('log').textContent += `✗ ${g.name}：${t.slice(0, 12)}…（${e.message}）\n`; }
       $('prog').value++;
     }
