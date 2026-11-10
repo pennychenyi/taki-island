@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>聲音與注音試聽</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  body{padding:16px;max-width:680px;margin:0 auto}
+  .card{background:var(--card);border:2px solid var(--line);border-radius:18px;padding:12px 14px;margin:10px 0}
+  .voice{display:flex;align-items:center;gap:10px;justify-content:space-between;border-bottom:1px solid var(--line);padding:8px 0}
+  .voice:last-child{border:0}
+  .voice small{color:var(--ink2);display:block}
+  .roles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .role{display:flex;flex-direction:column;align-items:center;border:2px solid var(--line);border-radius:18px;background:var(--card);padding:8px}
+  .role img{height:80px;object-fit:contain}
+  .role small{color:var(--ink2);font-size:.75rem}
+  /* 注音在字的右邊（直式，像課本） */
+  .zy-line{display:flex;justify-content:center;gap:4px;margin:10px 0}
+  .zy{display:inline-flex;align-items:center}
+  .zy .h{font-family:var(--kai);font-size:2.6rem;line-height:1}
+  .zy .b{display:flex;flex-direction:column;align-items:center;font-size:.8rem;line-height:1.05;margin-left:2px;position:relative;color:var(--ink2)}
+  .zy .b .t{position:absolute;right:-.7em;top:50%;transform:translateY(-60%);font-size:.8rem}
+  .zy .b .t.light{position:static;transform:none}
+  .idiom{text-align:center;margin:14px 0}
+  .idiom p{margin:0;color:var(--ink2);font-size:.9rem}
+</style>
+</head>
+<body>
+<h2>聲音與注音試聽</h2>
+<p class="fine">請用 Taki 平常玩的 iPad，在 Safari 打開這一頁。不同裝置有的聲音不一樣。</p>
+
+<div class="card">
+  <h3>① 這台裝置有的中文聲音</h3>
+  <p class="fine" id="count">讀取中…（如果一直沒出現，請點一下「重新讀取」）</p>
+  <div id="list"></div>
+  <button class="btn small" id="reload">重新讀取</button>
+</div>
+
+<div class="card">
+  <h3>② 神獸聲線（用這台裝置的聲音調出來的）</h3>
+  <div class="roles" id="roles"></div>
+</div>
+
+<div class="card">
+  <h3>③ 和練習的字有關的成語（注音在字的右邊）</h3>
+  <div id="idioms"></div>
+</div>
+
+<script>
+const SAMPLE = '你好，我是神獸。你寫得真好，筆畫有力量，入木三分！';
+const ROLES = [
+  { img: 'QQ_cheer', name: 'QQ（朱雀）', want: 'female', pitch: 1.35, rate: 1.05, say: '我是 QQ！你好棒喔，我們一起去冒險吧！' },
+  { img: 'RaRa_hatched', name: 'Rara（羬羊）', want: 'female', pitch: 1.15, rate: 0.9, say: '我是 Rara，慢慢來沒關係，我陪你。' },
+  { img: 'Uni_hatched', name: 'Uni（麒麟）', want: 'female', pitch: 1.0, rate: 0.95, say: '我是麒麟 Uni，一字千金，你寫的每個字都很珍貴。' },
+  { img: 'Taki_hatched', name: '青龍 Taki', want: 'male', pitch: 1.0, rate: 0.95, say: '我是青龍 Taki，水滴石穿，每天練一點點就會成功。' },
+  { img: 'Yuki_hatched', name: '白虎 Yuki', want: 'male', pitch: 0.85, rate: 0.9, say: '我是白虎 Yuki，倒背如流，你一定做得到！' },
+  { img: 'BuBu_hatched', name: '玄武 BuBu', want: 'male', pitch: 0.75, rate: 0.8, say: '我是玄武 BuBu，積土成山，慢慢走也能走很遠。' },
+];
+// 和字有關的成語（注音依教育部國語辭典）
+const IDIOMS = [
+  { ch: '木', w: '入木三分', z: ['ㄖㄨˋ', 'ㄇㄨˋ', 'ㄙㄢ', 'ㄈㄣ'], m: '寫字筆力很強，好像刻進木頭裡' },
+  { ch: '水', w: '水滴石穿', z: ['ㄕㄨㄟˇ', 'ㄉㄧ', 'ㄕˊ', 'ㄔㄨㄢ'], m: '水一直滴，連石頭都能滴穿' },
+  { ch: '金', w: '一字千金', z: ['ㄧ', 'ㄗˋ', 'ㄑㄧㄢ', 'ㄐㄧㄣ'], m: '一個字就值一千兩黃金' },
+  { ch: '土', w: '積土成山', z: ['ㄐㄧ', 'ㄊㄨˇ', 'ㄔㄥˊ', 'ㄕㄢ'], m: '一點一點的土，也能堆成大山' },
+  { ch: '背', w: '倒背如流', z: ['ㄉㄠˋ', 'ㄅㄟˋ', 'ㄖㄨˊ', 'ㄌㄧㄡˊ'], m: '倒過來背也像流水一樣順' },
+];
+
+let voices = [];
+const isMale = v => /男|male|Han|Yun|Zhi|Kang|Wang|Li-mu|Bo/i.test(v.name) && !/female|女/i.test(v.name);
+function load() {
+  voices = speechSynthesis.getVoices().filter(v => /^zh|^cmn|^yue/i.test(v.lang));
+  voices.sort((a, b) => (b.lang === 'zh-TW') - (a.lang === 'zh-TW'));
+  document.getElementById('count').textContent = voices.length
+    ? `找到 ${voices.length} 個中文聲音（zh-TW 是台灣華語）` : '還沒找到中文聲音，請點「重新讀取」。';
+  document.getElementById('list').innerHTML = voices.map((v, i) => `
+    <div class="voice"><div><b>${v.name}</b><small>${v.lang}${v.localService ? '・內建' : '・需要網路'}${isMale(v) ? '・可能是男聲' : ''}</small></div>
+    <button class="btn small" data-i="${i}">試聽</button></div>`).join('');
+  document.querySelectorAll('[data-i]').forEach(b => b.onclick = () => say(SAMPLE, voices[b.dataset.i]));
+  renderRoles();
+}
+function say(text, v, pitch = 1, rate = 0.95) {
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = v ? v.lang : 'zh-TW'; if (v) u.voice = v; u.pitch = pitch; u.rate = rate;
+  speechSynthesis.speak(u);
+}
+function pick(want) {
+  const tw = voices.filter(v => v.lang === 'zh-TW');
+  const pool = tw.length ? tw : voices;
+  const m = pool.filter(isMale), f = pool.filter(v => !isMale(v));
+  return (want === 'male' ? m[0] : f[0]) || pool[0];
+}
+function renderRoles() {
+  document.getElementById('roles').innerHTML = ROLES.map((r, i) => {
+    const v = pick(r.want);
+    return `<button class="role" data-r="${i}"><img src="assets/img/${r.img}.webp" alt=""><b>${r.name}</b>
+      <small>${r.want === 'male' ? '男聲' : '女聲'}・${v ? v.name : '無'}</small></button>`;
+  }).join('');
+  document.querySelectorAll('[data-r]').forEach(b => b.onclick = () => {
+    const r = ROLES[b.dataset.r]; say(r.say, pick(r.want), r.pitch, r.rate);
+  });
+}
+function zyHtml(word, zys, key) {
+  return [...word].map((h, i) => {
+    const z = zys[i] || '';
+    const tone = (z.match(/[ˊˇˋ˙]$/) || [''])[0];
+    const body = tone ? z.slice(0, -1) : z;
+    const light = tone === '˙';
+    return `<span class="zy"><span class="h"${h === key ? ' style="color:#D9564C"' : ''}>${h}</span><span class="b">${light ? '<span class="t light">˙</span>' : ''}${[...body].map(c => `<span>${c}</span>`).join('')}${tone && !light ? `<span class="t">${tone}</span>` : ''}</span></span>`;
+  }).join('');
+}
+document.getElementById('idioms').innerHTML = IDIOMS.map(d => `
+  <div class="idiom"><div class="zy-line">${zyHtml(d.w, d.z, d.ch)}</div><p>練「${d.ch}」字時出現：${d.m}</p></div>`).join('');
+speechSynthesis.onvoiceschanged = load;
+document.getElementById('reload').onclick = load;
+setTimeout(load, 300);
+</script>
+</body>
+</html>
