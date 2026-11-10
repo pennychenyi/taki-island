@@ -1,0 +1,34 @@
+name: 產生神獸語音
+
+on:
+  workflow_dispatch:          # 在 GitHub 的 Actions 頁面按「Run workflow」
+  push:
+    paths: ['scripts/lines.json']
+  schedule:
+    - cron: '0 19 * * *'      # 每天台灣時間凌晨 3 點自動補做（全部完成後只會花幾秒）
+
+permissions:
+  contents: write
+
+concurrency:
+  group: voices
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安裝 ffmpeg
+        run: which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: 產生語音
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python3 scripts/gen_audio.py
+      - name: 存回網站
+        run: |
+          git config user.name "voice-bot"
+          git config user.email "voice-bot@users.noreply.github.com"
+          git add audio
+          git diff --cached --quiet || (git commit -m "更新神獸語音" && git push)
