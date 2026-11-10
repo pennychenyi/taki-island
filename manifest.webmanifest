@@ -1,0 +1,14 @@
+{
+  "name": "五行島的種子守護者",
+  "short_name": "五行島",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FBF4EE",
+  "theme_color": "#FBF4EE",
+  "lang": "zh-Hant-TW",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
