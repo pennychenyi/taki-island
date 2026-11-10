@@ -17,7 +17,7 @@ export function newKid(form) {
   return {
     nickname: form.nickname, grade: Number(form.grade), version: form.version,
     gender: form.gender || '', age: form.age ? Number(form.age) : null,
-    avatar: 'Avatar_samurai_boy', pet: null,
+    avatar: 'Avatar_samurai_boy', pet: null, guide: form.guide || 'QQ',
     coins: 0,
     seeds: { wood: 0, fire: 0, earth: 0, metal: 0, water: 0 },
     gems: { wood: 0, fire: 0, earth: 0, metal: 0, water: 0 },

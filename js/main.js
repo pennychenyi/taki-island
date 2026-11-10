@@ -1,5 +1,7 @@
 import * as store from './store.js';
-import { speak, stopSpeak, sfx, pickPraise } from './audio.js';
+import { speak, stopSpeak, sfx, pickPraise, setGuide } from './audio.js';
+import { SAY, QUIZ, storySay } from './lines.js';
+import { GUIDES } from './voices.js';
 import { STORY } from './story.js';
 import { Writer } from './writer.js';
 
@@ -115,7 +117,7 @@ async function kidsScreen() {
   document.getElementById('add').onclick = newKidScreen;
   app.querySelectorAll('.kid[data-id]').forEach(b => b.onclick = () => {
     const k = kids.find(x => x.id === b.dataset.id);
-    S.kidId = k.id; S.kid = { ...k }; delete S.kid.id; S.freeTripUsed = false;
+    S.kidId = k.id; S.kid = { ...k }; delete S.kid.id; S.freeTripUsed = false; setGuide(S.kid.guide);
     S.kid.storySeen ? mapScreen() : storyScreen(0);
   });
 }
@@ -135,13 +137,16 @@ function newKidScreen() {
           <button type="button" data-v="翰林" disabled>翰林<small>即將推出</small></button></div></label>
       <label>性別 <span class="opt">選填</span>
         <div class="seg" data-name="gender"><button type="button" data-v="男生">男生</button><button type="button" data-v="女生">女生</button><button type="button" data-v="">不填</button></div></label>
+      <label>選一隻神獸當你的嚮導 <em>聲音</em>
+        <div class="guides">${GUIDES.map(g => `<div class="guide ${g.id === 'QQ' ? 'sel' : ''}" data-g="${g.id}"><img src="${IMG(g.img)}" alt=""><b>${g.name}</b><small>${g.gender}</small><button type="button" class="btn small" data-hear="${g.id}">試聽</button></div>`).join('')}</div></label>
       <label>年齡 <span class="opt">選填</span><input name="age" type="number" inputmode="numeric" min="4" max="15" placeholder="例如：8"></label>
       <p class="err" id="err"></p>
       <p class="fine">只收遊戲需要的資料，不需要真實姓名或照片。</p>
       <button class="btn big gold" type="submit">下一步：選造型</button>
     </form>
   </div>`, 'scroll');
-  const val = {};
+  const val = { guide: 'QQ' };
+  bindGuides(app, g => val.guide = g);
   app.querySelectorAll('.seg').forEach(seg => seg.querySelectorAll('button:not([disabled])').forEach(b => b.onclick = () => {
     seg.querySelectorAll('button').forEach(x => x.classList.remove('sel')); b.classList.add('sel');
     val[seg.dataset.name] = b.dataset.v; document.getElementById('err').textContent = '';
@@ -154,10 +159,25 @@ function newKidScreen() {
     if (!nick) return err.textContent = '請輸入暱稱';
     if (!val.grade) return err.textContent = '請選擇年級';
     if (!val.version) return err.textContent = '請選擇課本版本';
-    const kid = store.newKid({ nickname: nick, grade: val.grade, version: val.version, gender: val.gender, age: f.age.value });
+    const kid = store.newKid({ nickname: nick, grade: val.grade, version: val.version, gender: val.gender, age: f.age.value, guide: val.guide });
+    setGuide(kid.guide);
     try { S.kidId = await store.createKid(kid); S.kid = kid; S.freeTripUsed = false; avatarScreen(true); }
     catch (e2) { err.textContent = '存檔失敗，請確認網路和 Firestore 規則。'; console.warn(e2); }
   };
+}
+
+function bindGuides(root, onPick) {
+  root.querySelectorAll('.guide').forEach(d => d.onclick = e => {
+    const g = GUIDES.find(x => x.id === d.dataset.g);
+    if (e.target.closest('[data-hear]')) { sfx.tap(); speak(g.sample, { as: g.id }); return; }
+    root.querySelectorAll('.guide').forEach(x => x.classList.remove('sel')); d.classList.add('sel'); onPick(g.id);
+  });
+}
+function guideModal() {
+  const m = modal(`<h3>換嚮導神獸</h3><p class="sub">選一隻神獸陪你說話</p>
+    <div class="guides">${GUIDES.map(g => `<div class="guide ${g.id === (S.kid.guide || 'QQ') ? 'sel' : ''}" data-g="${g.id}"><img src="${IMG(g.img)}" alt=""><b>${g.name}</b><small>${g.gender}</small><button type="button" class="btn small" data-hear="${g.id}">試聽</button></div>`).join('')}</div>
+    <button class="btn gold" data-close>好了</button>`);
+  bindGuides(m, g => { S.kid.guide = g; setGuide(g); save(); });
 }
 
 function avatarScreen(first = false) {
@@ -179,7 +199,7 @@ function storyScreen(i, fromMap = false) {
   const p = STORY[i];
   const imgs = p.img.map(n => n === '{avatar}' ? S.kid.avatar : n);
   const text = fill(p.text);
-  const say = `${p.title}。${text}${p.ask ? '。' + p.ask : ''}`;
+  const say = storySay(p);
   screen(`
   <div class="story">
     <div class="story-top"><span class="dots">${STORY.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</span>
@@ -234,11 +254,12 @@ function meMenu() {
       ${Object.keys(EL).map(e => `<div><img src="${IMG('Seed_' + e)}" alt=""><b>${S.kid.seeds[e]}</b><small>${EL[e]}種子</small></div>`).join('')}
       ${Object.keys(EL).map(e => `<div><img src="${IMG('Gem_' + e)}" alt=""><b>${S.kid.gems[e]}</b><small>${EL[e]}寶石</small></div>`).join('')}
     </div>
-    <div class="row"><button class="btn" id="av">換造型</button><button class="btn" id="pet">我的靈獸</button><button class="btn" id="st">聽故事</button></div>
+    <div class="row"><button class="btn" id="av">換造型</button><button class="btn" id="pet">我的靈獸</button><button class="btn" id="st">聽故事</button><button class="btn" id="gd">換嚮導</button></div>
     <button class="btn ghost" data-close>關閉</button>`);
   m.querySelector('#av').onclick = () => { m.remove(); avatarScreen(); };
   m.querySelector('#pet').onclick = () => { m.remove(); petsModal(); };
   m.querySelector('#st').onclick = () => { m.remove(); storyScreen(0, true); };
+  m.querySelector('#gd').onclick = () => { m.remove(); guideModal(); };
 }
 
 function petsModal() {
@@ -347,13 +368,6 @@ async function transportModal(dest) {
 
 // ───────── 五行試煉 ─────────
 const TRIAL = ['金', '木', '水', '火', '土'];
-const QUIZ = [
-  { q: '「金」一共有幾畫？', a: '8', o: ['6', '7', '8', '9'], key: '金' },
-  { q: '哪一個字讀作「ㄕㄨㄟˇ」？', a: '水', o: ['火', '水', '木', '土'], key: '水' },
-  { q: '「火」的注音是哪一個？', a: 'ㄏㄨㄛˇ', o: ['ㄏㄨㄛ', 'ㄏㄨㄛˊ', 'ㄏㄨㄛˇ', 'ㄏㄨㄛˋ'], key: '火' },
-  { q: '「木」一共有幾畫？', a: '4', o: ['3', '4', '5', '6'], key: '木' },
-  { q: '故事裡說，五行之中哪一個會讓樹木長大？', a: '水', o: ['金', '水', '火', '土'], key: null },
-];
 
 function trialScreen() {
   screen(`
@@ -367,9 +381,9 @@ function trialScreen() {
 const stage = () => document.getElementById('stage');
 
 function trialIntro() {
-  const t = `${S.kid.nickname}，五行試煉開始囉！先跟我一起寫「金、木、水、火、土」五個字。每寫對一筆，我就往前跳一格。寫錯也沒關係，我會給你提示！`;
+  const t = SAY.trialIntro;
   stage().innerHTML = `
-    <div class="qq-talk"><img src="${IMG('QQ_baby')}" class="bob" alt=""><p>${esc(t)}</p>${playBtn(t, 'below')}</div>
+    <div class="qq-talk"><img src="${IMG('QQ_baby')}" class="bob" alt=""><p>${name()}，${esc(t)}</p>${playBtn(t, 'below')}</div>
     <button class="btn big gold" id="start">開始！</button>`;
   speak(t);
   document.getElementById('start').onclick = () => { sfx.tap(); writeChar(0); };
@@ -426,7 +440,7 @@ function quiz(qi, wrongCount) {
   document.getElementById('step').textContent = `問答 ${qi + 1} / ${QUIZ.length}`;
   stage().innerHTML = `
     <div class="quiz">
-      <p class="q">${esc(q.q)}</p>${playBtn(q.q, 'below')}
+      <p class="q">${esc(q.q)}</p>${playBtn(q.say || q.q, 'below')}
       <div class="opts">${q.o.map(o => `<button class="opt kai">${esc(o)}</button>`).join('')}</div>
       <div class="qq-pop" id="pop" hidden></div>
     </div>`;
@@ -469,7 +483,7 @@ function chest(el = 'earth', after = hatchScreen) {
 
 function hatchScreen() {
   const first = !S.kid.pets.RaRa;
-  const t = first ? '我們搭纜車到孵蛋神社吧！這次免費喔。咦？這顆粉紅色的蛋在動！快點蛋五下，幫牠出來！' : 'Rara 已經是你的好夥伴了！';
+  const t = first ? SAY.hatchFirst : SAY.hatchAgain;
   stage().innerHTML = `
     <div class="hatch">
       <p class="cable">🚡 纜車出發 → ⛩️ 孵蛋神社</p>
@@ -489,7 +503,7 @@ function hatchScreen() {
       b.innerHTML = `<img class="pop" src="${IMG('RaRa_jump')}" alt="Rara">`;
       b.onclick = null;
       S.kid.pets.RaRa = { hatched: true, at: Date.now() }; S.kid.pet = 'RaRa_hatched';
-      const msg = `Rara 孵出來了！牠是《山海經》裡的羬羊，屬性是火和土。從現在開始，Rara 會陪你一起探險！`;
+      const msg = SAY.hatched;
       document.getElementById('taps').textContent = msg;
       speak(msg);
       finishTrial();

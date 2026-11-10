@@ -8,9 +8,30 @@ function pickVoice() {
 }
 if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 
-export function speak(text, { rate = 0.9, onend } = {}) {
-  if (!('speechSynthesis' in window)) { onend?.(); return; }
+import { hashText, DEFAULT_GUIDE } from './voices.js';
+
+// 先找「語音工坊」做好的神獸音檔；沒有的話才用裝置內建語音
+let guide = DEFAULT_GUIDE, index = {}, player = null;
+fetch('audio/index.json').then(r => r.ok ? r.json() : {}).then(j => index = j).catch(() => {});
+export function setGuide(id) { guide = id || DEFAULT_GUIDE; }
+export const hasClip = (text, g = guide) => !!index[g]?.includes(hashText(text));
+
+export function speak(text, { rate = 0.9, onend, as } = {}) {
   stopSpeak();
+  const g = as || guide;
+  if (hasClip(text, g)) {
+    player = player || new Audio();
+    player.src = `audio/${g}/${hashText(text)}.mp3`;
+    player.onended = () => { speaking = null; onend?.(); };
+    player.onerror = () => { speaking = null; ttsSpeak(text, rate, onend); };
+    speaking = player;
+    player.play().catch(() => { speaking = null; onend?.(); });
+    return;
+  }
+  ttsSpeak(text, rate, onend);
+}
+function ttsSpeak(text, rate, onend) {
+  if (!('speechSynthesis' in window)) { onend?.(); return; }
   const u = new SpeechSynthesisUtterance(text.replace(/[「」『』〔〕]/g, ''));
   u.lang = 'zh-TW'; if (voice) u.voice = voice; u.rate = rate; u.pitch = 1.1;
   u.onend = () => { speaking = null; onend?.(); };
@@ -18,7 +39,11 @@ export function speak(text, { rate = 0.9, onend } = {}) {
   speaking = u;
   speechSynthesis.speak(u);
 }
-export function stopSpeak() { if ('speechSynthesis' in window) speechSynthesis.cancel(); speaking = null; }
+export function stopSpeak() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  if (player) { player.pause(); player.onended = null; }
+  speaking = null;
+}
 export const isSpeaking = () => !!speaking;
 
 function ac() {

@@ -200,3 +200,11 @@ body.night .choice{background:#3a4a77}
 .pop{animation:popin .5s backwards}
 @keyframes popin{from{transform:scale(.3);opacity:0}70%{transform:scale(1.08)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.guides{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px;font-weight:400}
+.guide{background:var(--card);border:2px solid var(--line);border-radius:18px;padding:6px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+.guide img{height:64px;object-fit:contain}
+.guide b{font-size:.85rem} .guide small{font-size:.7rem;color:var(--ink2)}
+.guide .btn{min-height:34px;padding:0 10px;font-size:.8rem}
+.guide.sel{border-color:var(--gold);background:#FFF3DC}
+body.night .guide.sel{background:#3a4a77}

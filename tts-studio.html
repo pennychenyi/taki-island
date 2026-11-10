@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>語音工坊（家長用）</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  body{padding:16px;max-width:720px;margin:0 auto}
+  .card{background:var(--card);border:2px solid var(--line);border-radius:18px;padding:12px 14px;margin:12px 0}
+  .card input{font:inherit;width:100%;padding:8px 12px;border-radius:12px;border:2px solid var(--line);margin:4px 0 8px}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  td{border-bottom:1px solid var(--line);padding:6px 4px;vertical-align:middle}
+  td img{height:44px}
+  .tag{font-size:.75rem;border-radius:8px;padding:1px 6px;background:#EEF3FB}
+  .tag.az{background:#FFF0E0}
+  progress{width:100%;height:16px}
+  #log{font-size:.8rem;color:var(--ink2);max-height:160px;overflow:auto;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h2>🎙️ 語音工坊（家長用）</h2>
+<p class="fine">把遊戲裡所有台詞，用台灣華語的神獸聲音做成音檔。金鑰只存在這台電腦的瀏覽器，不會上傳到任何地方。</p>
+
+<div class="card">
+  <h3>① 貼上金鑰</h3>
+  <label>Google Cloud 金鑰（AIza 開頭）<input id="gkey" type="password" autocomplete="off"></label>
+  <label>Azure 語音金鑰（可以之後再填）<input id="akey" type="password" autocomplete="off"></label>
+  <label>Azure 區域<input id="areg" placeholder="eastasia"></label>
+  <button class="btn small" id="savekeys">記住金鑰</button> <span class="fine" id="kmsg"></span>
+</div>
+
+<div class="card">
+  <h3>② 試聽六位神獸</h3>
+  <table id="guides"></table>
+</div>
+
+<div class="card">
+  <h3>③ 產生全部音檔</h3>
+  <p class="fine" id="est"></p>
+  <button class="btn gold" id="go">開始產生並下載</button>
+  <progress id="prog" value="0" max="1" hidden></progress>
+  <div id="log"></div>
+</div>
+
+<script type="module">
+import { GUIDES, hashText } from './js/voices.js';
+import { allLines } from './js/lines.js';
+
+const $ = id => document.getElementById(id);
+const LS = k => localStorage.getItem('tts-' + k) || '';
+$('gkey').value = LS('gkey'); $('akey').value = LS('akey'); $('areg').value = LS('areg') || 'eastasia';
+$('savekeys').onclick = () => {
+  ['gkey', 'akey', 'areg'].forEach(k => localStorage.setItem('tts-' + k, $(k).value.trim()));
+  $('kmsg').textContent = '已記住（只存在這台電腦）'; renderGuides();
+};
+const keys = () => ({ g: $('gkey').value.trim(), a: $('akey').value.trim(), r: $('areg').value.trim() || 'eastasia' });
+const provider = g => (keys().a && g.azure) ? 'azure' : (keys().g && g.google) ? 'google' : null;
+
+function b64ToBytes(b64) { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+async function synth(text, g) {
+  const p = provider(g), k = keys();
+  if (p === 'google') {
+    const r = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(k.g), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: { text }, voice: { languageCode: 'cmn-TW', name: g.google.name },
+        audioConfig: { audioEncoding: 'MP3', pitch: g.google.pitch, speakingRate: g.google.rate } }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error?.message || r.status);
+    return b64ToBytes(j.audioContent);
+  }
+  if (p === 'azure') {
+    const esc = s => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const ssml = `<speak version="1.0" xml:lang="zh-TW"><voice name="${g.azure.name}"><prosody pitch="${g.azure.pitch}" rate="${g.azure.rate}">${esc(text)}</prosody></voice></speak>`;
+    const r = await fetch(`https://${k.r}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+      method: 'POST', body: ssml,
+      headers: { 'Ocp-Apim-Subscription-Key': k.a, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3' },
+    });
+    if (!r.ok) throw new Error('Azure ' + r.status + ' ' + (await r.text()).slice(0, 120));
+    return new Uint8Array(await r.arrayBuffer());
+  }
+  throw new Error('還沒有可以用的金鑰');
+}
+
+function renderGuides() {
+  $('guides').innerHTML = GUIDES.map((g, i) => {
+    const p = provider(g);
+    const v = p === 'azure' ? g.azure.name : p === 'google' ? g.google.name : '（請先填金鑰）';
+    return `<tr><td><img src="assets/img/${g.img}.webp" alt=""></td><td><b>${g.name}</b><br><small>${g.gender}</small></td>
+      <td><span class="tag ${p === 'azure' ? 'az' : ''}">${p || '—'}</span><br><small>${v}</small></td>
+      <td><button class="btn small" data-i="${i}">試聽</button></td></tr>`;
+  }).join('');
+  document.querySelectorAll('[data-i]').forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = '產生中…';
+    try { const bytes = await synth(GUIDES[b.dataset.i].sample, GUIDES[b.dataset.i]); new Audio(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))).play(); }
+    catch (e) { alert('失敗：' + e.message); }
+    b.disabled = false; b.textContent = '試聽';
+  });
+  const lines = allLines(), chars = lines.reduce((s, t) => s + t.length, 0);
+  $('est').textContent = `共 ${lines.length} 句、約 ${chars} 字；六位神獸合計約 ${chars * GUIDES.length} 字（在免費額度內）。`;
+}
+renderGuides();
+
+// 簡單的 ZIP（不壓縮）
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u => { let c = 0xFFFFFFFF; for (let i = 0; i < u.length; i++) c = CRC[(c ^ u[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function zip(files) {
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  for (const [name, data] of files) {
+    const nb = enc.encode(name), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true);
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nb.length, true);
+    parts.push(new Uint8Array(h.buffer), nb, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, nb.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), nb);
+    off += 30 + nb.length + data.length;
+  }
+  const size = central.reduce((s, x) => s + x.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, size, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/zip' });
+}
+
+$('go').onclick = async () => {
+  const lines = allLines(), ready = GUIDES.filter(provider);
+  if (!ready.length) return alert('請先填 Google 金鑰');
+  const total = lines.length * ready.length, files = [], index = {};
+  $('prog').hidden = false; $('prog').max = total; $('prog').value = 0; $('log').textContent = '';
+  $('go').disabled = true;
+  for (const g of ready) {
+    index[g.id] = [];
+    for (const t of lines) {
+      const h = hashText(t);
+      try { files.push([`audio/${g.id}/${h}.mp3`, await synth(t, g)]); index[g.id].push(h); }
+      catch (e) { $('log').textContent += `✗ ${g.name}：${t.slice(0, 12)}…（${e.message}）\n`; }
+      $('prog').value++;
+    }
+    $('log').textContent += `✓ ${g.name} 完成（${index[g.id].length} 句）\n`;
+  }
+  files.push(['audio/index.json', new TextEncoder().encode(JSON.stringify(index))]);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(zip(files)); a.download = 'taki-audio.zip'; a.click();
+  $('log').textContent += '\n🎉 已下載 taki-audio.zip，請把這個檔案拖進和 Claude 的對話裡。';
+  $('go').disabled = false;
+};
+</script>
+</body>
+</html>
